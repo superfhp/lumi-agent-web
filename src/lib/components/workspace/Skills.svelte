@@ -196,9 +196,7 @@
 					</button>
 				{/if}
 
-				{#if $user?.role === 'admin' || $user?.permissions?.workspace?.skills}
-					<!-- Create button disabled - skills managed via remote API -->
-				{/if}
+				<!-- Create button disabled - skills managed via remote API -->
 			</div>
 		</div>
 	</div>
