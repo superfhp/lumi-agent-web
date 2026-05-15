@@ -196,13 +196,26 @@ async def get_skill_by_id(id: str, user=Depends(get_verified_user), db: AsyncSes
 ############################
 
 
-@router.post('/id/{id}/toggle', response_model=Optional[SkillModel])
-async def toggle_skill_by_id(id: str, user=Depends(get_verified_user), db: AsyncSession = Depends(get_async_session)):
+class ToggleSkillRequest(BaseModel):
+    name: str
+    enabled: bool
+
+
+@router.put('/toggle', response_model=Optional[SkillModel])
+async def toggle_skill_by_id(
+    form_data: ToggleSkillRequest,
+    user=Depends(get_verified_user),
+    db: AsyncSession = Depends(get_async_session)
+):
     """Toggle skill state via remote API"""
     try:
-        toggle_url = f"{REMOTE_SKILLS_API_URL}/{id}/toggle"
+        toggle_url = f"{REMOTE_SKILLS_API_URL}/toggle"
         async with httpx.AsyncClient(timeout=REMOTE_SKILLS_API_TIMEOUT) as client:
-            response = await client.post(toggle_url, headers=_remote_skills_headers())
+            response = await client.put(
+                toggle_url,
+                headers=_remote_skills_headers(),
+                json={'name': form_data.name, 'enabled': form_data.enabled}
+            )
             response.raise_for_status()
         
         result = response.json()
