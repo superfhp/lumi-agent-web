@@ -65,6 +65,7 @@ def _normalize_remote_skill(item: dict) -> dict:
         'user_id': item.get('user_id') or user['id'],
         'name': item.get('name') or skill_id,
         'description': item.get('description'),
+        'content': item.get('content', ''),
         'meta': meta or {'tags': []},
         'is_active': item.get('is_active', item.get('enabled', True)),
         'access_grants': item.get('access_grants', []),
