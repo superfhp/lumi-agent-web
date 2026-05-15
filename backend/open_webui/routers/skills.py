@@ -1,6 +1,8 @@
 import logging
+import os
 from typing import Optional
 
+import httpx
 from open_webui.models.groups import Groups
 from pydantic import BaseModel
 
@@ -28,7 +30,65 @@ log = logging.getLogger(__name__)
 
 PAGE_ITEM_COUNT = 30
 
+REMOTE_SKILLS_API_URL = os.environ.get(
+    'HERMES_SKILLS_API_URL', 'http://172.16.217.143:8642/v1/hermes/skills'
+).rstrip('/')
+REMOTE_SKILLS_API_KEY = os.environ.get('HERMES_SKILLS_API_KEY', 'Asdf@1234')
+REMOTE_SKILLS_API_TIMEOUT = float(os.environ.get('HERMES_SKILLS_API_TIMEOUT', '30'))
+
 router = APIRouter()
+
+
+def _remote_skills_headers() -> dict[str, str]:
+    headers = {'Accept': 'application/json'}
+    if REMOTE_SKILLS_API_KEY:
+        headers['Authorization'] = f'Bearer {REMOTE_SKILLS_API_KEY}'
+    return headers
+
+
+def _normalize_remote_skill(item: dict) -> dict:
+    skill_id = item.get('id') or item.get('name') or ''
+    category = item.get('category')
+    meta = item.get('meta') if isinstance(item.get('meta'), dict) else {}
+    if category and 'tags' not in meta:
+        meta = {**meta, 'tags': [category] if not isinstance(category, list) else category}
+
+    user = item.get('user') or {
+        'id': 'hermes-skill-service',
+        'name': 'Hermes Agent',
+        'role': 'user',
+        'email': 'hermes-agent@local',
+    }
+
+    return {
+        'id': skill_id,
+        'user_id': item.get('user_id') or user['id'],
+        'name': item.get('name') or skill_id,
+        'description': item.get('description'),
+        'meta': meta or {'tags': []},
+        'is_active': item.get('is_active', item.get('enabled', True)),
+        'access_grants': item.get('access_grants', []),
+        'updated_at': item.get('updated_at', 0),
+        'created_at': item.get('created_at', 0),
+        'user': user,
+    }
+
+
+async def _fetch_remote_skills() -> list[dict]:
+    async with httpx.AsyncClient(timeout=REMOTE_SKILLS_API_TIMEOUT) as client:
+        response = await client.get(REMOTE_SKILLS_API_URL, headers=_remote_skills_headers())
+        response.raise_for_status()
+
+    payload = response.json()
+    if isinstance(payload, dict):
+        if isinstance(payload.get('data'), list):
+            return payload['data']
+        if isinstance(payload.get('items'), list):
+            return payload['items']
+    if isinstance(payload, list):
+        return payload
+
+    return []
 
 
 ############################
@@ -42,26 +102,8 @@ async def get_skills(
     user=Depends(get_verified_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    if user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL:
-        skills = await Skills.get_skills(db=db)
-    else:
-        user_group_ids = {group.id for group in await Groups.get_groups_by_member_id(user.id, db=db)}
-        all_skills = await Skills.get_skills(db=db)
-        skills = [
-            skill
-            for skill in all_skills
-            if skill.user_id == user.id
-            or await AccessGrants.has_access(
-                user_id=user.id,
-                resource_type='skill',
-                resource_id=skill.id,
-                permission='read',
-                user_group_ids=user_group_ids,
-                db=db,
-            )
-        ]
-
-    return skills
+    remote_skills = await _fetch_remote_skills()
+    return [SkillUserResponse(**_normalize_remote_skill(skill)) for skill in remote_skills]
 
 
 ############################
@@ -82,40 +124,31 @@ async def get_skill_list(
     page = max(1, page)
     skip = (page - 1) * limit
 
-    filter = {}
+    remote_skills = await _fetch_remote_skills()
+
     if query:
-        filter['query'] = query
-    if view_option:
-        filter['view_option'] = view_option
+        query_lower = query.lower()
+        remote_skills = [
+            skill
+            for skill in remote_skills
+            if query_lower in str(skill.get('name', '')).lower()
+            or query_lower in str(skill.get('description', '')).lower()
+            or query_lower in str(skill.get('id', skill.get('name', ''))).lower()
+            or query_lower in str(skill.get('category', '')).lower()
+        ]
 
-    if not (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL):
-        groups = await Groups.get_groups_by_member_id(user.id, db=db)
-        if groups:
-            filter['group_ids'] = [group.id for group in groups]
-
-        filter['user_id'] = user.id
-
-    result = await Skills.search_skills(user.id, filter=filter, skip=skip, limit=limit, db=db)
+    total = len(remote_skills)
+    remote_skills = remote_skills[skip : skip + limit]
 
     return SkillAccessListResponse(
         items=[
             SkillAccessResponse(
-                **skill.model_dump(),
-                write_access=(
-                    (user.role == 'admin' and BYPASS_ADMIN_ACCESS_CONTROL)
-                    or user.id == skill.user_id
-                    or await AccessGrants.has_access(
-                        user_id=user.id,
-                        resource_type='skill',
-                        resource_id=skill.id,
-                        permission='write',
-                        db=db,
-                    )
-                ),
+                **_normalize_remote_skill(skill),
+                write_access=True,
             )
-            for skill in result.items
+            for skill in remote_skills
         ],
-        total=result.total,
+        total=total,
     )
 
 
