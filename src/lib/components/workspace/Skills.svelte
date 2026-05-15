@@ -13,8 +13,6 @@
 		getSkillById,
 		getSkillItems,
 		exportSkills,
-		createNewSkill,
-		deleteSkillById,
 		toggleSkillById
 	} from '$lib/apis/skills';
 	import { capitalizeFirstLetter, parseFrontmatter, formatSkillName } from '$lib/utils';
@@ -22,30 +20,20 @@
 
 	import Tooltip from '../common/Tooltip.svelte';
 	import ConfirmDialog from '../common/ConfirmDialog.svelte';
-	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import EllipsisHorizontal from '../icons/EllipsisHorizontal.svelte';
-	import GarbageBin from '../icons/GarbageBin.svelte';
 	import Search from '../icons/Search.svelte';
-	import Plus from '../icons/Plus.svelte';
 	import XMark from '../icons/XMark.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import ViewSelector from './common/ViewSelector.svelte';
 	import Badge from '$lib/components/common/Badge.svelte';
 	import Switch from '../common/Switch.svelte';
-	import SkillMenu from './Skills/SkillMenu.svelte';
 	import Pagination from '../common/Pagination.svelte';
 
 	let shiftKey = false;
 	let loaded = false;
 
-	let importFiles;
-	let importInputElement: HTMLInputElement;
-
 	let query = '';
 	let searchDebounceTimer: ReturnType<typeof setTimeout>;
-
-	let selectedSkill = null;
-	let showDeleteConfirm = false;
 
 	let filteredItems = null;
 	let total = null;
@@ -124,18 +112,8 @@
 	};
 
 	const deleteHandler = async (skill) => {
-		const res = await deleteSkillById(localStorage.token, skill.id).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
-
-		if (res) {
-			toast.success($i18n.t('Skill deleted successfully'));
-		}
-
-		page = 1;
-		loadSkillItems();
-		await _skills.set(await getSkills(localStorage.token));
+		// Delete functionality removed - managed via remote API only
+	};
 	};
 
 	onMount(async () => {
@@ -195,84 +173,9 @@
 			</div>
 
 			<div class="flex w-full justify-end gap-1.5">
-				<input
-					bind:this={importInputElement}
-					bind:files={importFiles}
-					type="file"
-					accept=".md,.json"
-					hidden
-					on:change={() => {
-						if (importFiles && importFiles.length > 0) {
-							const file = importFiles[0];
-							const ext = file.name.split('.').pop()?.toLowerCase();
-
-							if (ext === 'json') {
-								// JSON import: create skills via API
-								const reader = new FileReader();
-								reader.onload = async (event) => {
-									try {
-										const content = event.target?.result;
-										if (typeof content !== 'string') return;
-
-										const parsedSkills = JSON.parse(content);
-										const items = Array.isArray(parsedSkills) ? parsedSkills : [parsedSkills];
-
-										for (const skill of items) {
-											await createNewSkill(localStorage.token, skill).catch((error) => {
-												toast.error(`${error}`);
-											});
-										}
-
-										toast.success($i18n.t('Skill imported successfully'));
-										page = 1;
-										loadSkillItems();
-										_skills.set(await getSkills(localStorage.token));
-									} catch (e) {
-										toast.error($i18n.t('Invalid JSON file'));
-									}
-								};
-								reader.readAsText(file);
-							} else {
-								// Markdown import: parse frontmatter and open in editor
-								const reader = new FileReader();
-								reader.onload = (event) => {
-									const mdContent = event.target?.result;
-									if (typeof mdContent === 'string') {
-										const fm = parseFrontmatter(mdContent);
-										const fileName = file.name.replace(/\.md$/, '');
-										const rawName = fm.name || fileName;
-										const displayName = formatSkillName(rawName);
-										sessionStorage.skill = JSON.stringify({
-											name: displayName,
-											id: fm.name || '',
-											description: fm.description || '',
-											content: mdContent,
-											is_active: true,
-											access_grants: []
-										});
-										goto('/workspace/skills/create');
-									}
-								};
-								reader.readAsText(file);
-							}
-
-							importInputElement.value = '';
-						}
-					}}
-				/>
+				<!-- Import file input removed - skills managed via remote API -->
 
 				{#if $user?.role === 'admin' || $user?.permissions?.workspace?.skills}
-					<button
-						class="flex text-xs items-center space-x-1 px-3 py-1.5 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-gray-200 transition"
-						on:click={() => {
-							importInputElement.click();
-						}}
-					>
-						<div class=" self-center font-medium line-clamp-1">
-							{$i18n.t('Import')}
-						</div>
-					</button>
-				{/if}
 
 				{#if total && ($user?.role === 'admin' || $user?.permissions?.workspace?.skills)}
 					<button
@@ -297,14 +200,7 @@
 				{/if}
 
 				{#if $user?.role === 'admin' || $user?.permissions?.workspace?.skills}
-					<a
-						class=" px-2 py-1.5 rounded-xl bg-black text-white dark:bg-white dark:text-black transition font-medium text-sm flex items-center"
-						href="/workspace/skills/create"
-					>
-						<Plus className="size-3" strokeWidth="2.5" />
-
-						<div class=" hidden md:block md:ml-1 text-xs">{$i18n.t('New Skill')}</div>
-					</a>
+					<!-- Create button disabled - skills managed via remote API -->
 				{/if}
 			</div>
 		</div>
@@ -450,45 +346,7 @@
 							{/if}
 							{#if skill.write_access}
 								<div class="flex flex-row gap-0.5 self-center">
-									{#if shiftKey}
-										<Tooltip content={$i18n.t('Delete')}>
-											<button
-												class="self-center w-fit text-sm px-2 py-2 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
-												type="button"
-												aria-label={$i18n.t('Delete')}
-												on:click={() => {
-													deleteHandler(skill);
-												}}
-											>
-												<GarbageBin />
-											</button>
-										</Tooltip>
-									{:else}
-										<SkillMenu
-											editHandler={() => {
-												goto(`/workspace/skills/edit?id=${encodeURIComponent(skill.id)}`);
-											}}
-											cloneHandler={() => {
-												cloneHandler(skill);
-											}}
-											exportHandler={() => {
-												exportHandler(skill);
-											}}
-											deleteHandler={async () => {
-												selectedSkill = skill;
-												showDeleteConfirm = true;
-											}}
-											onClose={() => {}}
-										>
-											<button
-												class="self-center w-fit text-sm p-1.5 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
-												type="button"
-											>
-												<EllipsisHorizontal className="size-5" />
-											</button>
-										</SkillMenu>
-									{/if}
-
+									<!-- Menu disabled for remote API usage -->
 									<button on:click|stopPropagation|preventDefault>
 										<Tooltip content={skill.is_active ? $i18n.t('Enabled') : $i18n.t('Disabled')}>
 											<Switch
@@ -524,17 +382,7 @@
 		{/if}
 	</div>
 
-	<DeleteConfirmDialog
-		bind:show={showDeleteConfirm}
-		title={$i18n.t('Delete skill?')}
-		on:confirm={() => {
-			deleteHandler(selectedSkill);
-		}}
-	>
-		<div class=" text-sm text-gray-500 truncate">
-			{$i18n.t('This will delete')} <span class="  font-medium">{selectedSkill.name}</span>.
-		</div>
-	</DeleteConfirmDialog>
+	<!-- Delete confirmation dialog removed - delete functionality disabled -->
 {:else}
 	<div class="w-full h-full flex justify-center items-center">
 		<Spinner className="size-5" />
