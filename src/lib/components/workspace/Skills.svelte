@@ -114,7 +114,6 @@
 	const deleteHandler = async (skill) => {
 		// Delete functionality removed - managed via remote API only
 	};
-	};
 
 	onMount(async () => {
 		viewOption = localStorage?.workspaceViewOption || '';
