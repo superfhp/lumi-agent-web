@@ -347,7 +347,7 @@
 											<Switch
 												bind:state={skill.is_active}
 												on:change={async () => {
-													toggleSkillById(localStorage.token, skill.id);
+													toggleSkillById(localStorage.token, skill.id, skill.is_active);
 												}}
 											/>
 										</Tooltip>

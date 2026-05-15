@@ -258,16 +258,20 @@ export const updateSkillAccessGrants = async (token: string, id: string, accessG
 	return res;
 };
 
-export const toggleSkillById = async (token: string, id: string) => {
+export const toggleSkillById = async (token: string, id: string, enabled: boolean) => {
 	let error = null;
 
-	const res = await fetch(`${WEBUI_API_BASE_URL}/skills/id/${id}/toggle`, {
-		method: 'POST',
+	const res = await fetch(`${WEBUI_API_BASE_URL}/skills/toggle`, {
+		method: 'PUT',
 		headers: {
 			Accept: 'application/json',
 			'Content-Type': 'application/json',
 			authorization: `Bearer ${token}`
-		}
+		},
+		body: JSON.stringify({
+			name: id,
+			enabled: enabled
+		})
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
