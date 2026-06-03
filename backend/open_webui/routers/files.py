@@ -120,6 +120,21 @@ async def process_uploaded_file(
                 if _is_text_file(file_path):
                     content_type = 'text/plain'
 
+            # Short-circuit: when SKIP_FILE_PROCESSING is on, do NOT run the
+            # Loader / Tika / vector pipeline. Just mark the file as completed
+            # so the upstream agent (e.g. Hermes Agent) can read the file
+            # directly from disk via its own file/terminal tools. This avoids
+            # both the slow CSV/PDF parsing AND injecting file content into
+            # the prompt.
+            if os.environ.get('SKIP_FILE_PROCESSING', 'False').lower() == 'true':
+                log.info(f'SKIP_FILE_PROCESSING enabled, skipping process_file for {file_item.id}')
+                await Files.update_file_data_by_id(
+                    file_item.id,
+                    {'status': 'completed'},
+                    db=db_session,
+                )
+                return
+
             if content_type:
                 stt_supported_content_types = getattr(request.app.state.config, 'STT_SUPPORTED_CONTENT_TYPES', [])
 

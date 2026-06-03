@@ -1014,7 +1014,7 @@ AZURE_STORAGE_KEY = os.environ.get('AZURE_STORAGE_KEY', None)
 # File Upload DIR
 ####################################
 
-UPLOAD_DIR = DATA_DIR / 'uploads'
+UPLOAD_DIR = Path(os.environ.get('UPLOAD_DIR', DATA_DIR / 'uploads')).resolve()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -1022,7 +1022,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # Cache DIR
 ####################################
 
-CACHE_DIR = DATA_DIR / 'cache'
+CACHE_DIR = Path(os.environ.get('CACHE_DIR', DATA_DIR / 'cache')).resolve()
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
