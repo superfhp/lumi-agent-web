@@ -50,6 +50,7 @@ from open_webui.models.groups import Groups
 from open_webui.utils.access_control import check_model_access
 from open_webui.utils.misc import (
     calculate_sha256,
+    stream_chunks_handler,
 )
 from open_webui.utils.session_pool import (
     cleanup_response,
@@ -180,7 +181,7 @@ async def send_request(
 
             streaming = True
             return StreamingResponse(
-                stream_wrapper(r),
+                stream_wrapper(r, content_handler=stream_chunks_handler),
                 status_code=r.status,
                 headers=response_headers,
             )

@@ -954,7 +954,9 @@ async def stream_wrapper(response, session, content_handler=None):
     This is more reliable than BackgroundTask which may not run if client disconnects.
     """
     try:
-        stream = content_handler(response.content) if content_handler else response.content
+        # Iterating over aiohttp.StreamReader directly is line-based and can
+        # raise LineTooLong for large SSE events (aiohttp limit: 128 KiB).
+        stream = content_handler(response.content) if content_handler else response.content.iter_any()
         async for chunk in stream:
             yield chunk
     finally:
@@ -972,8 +974,6 @@ def stream_chunks_handler(stream: aiohttp.StreamReader):
     """
 
     max_buffer_size = CHAT_STREAM_RESPONSE_CHUNK_MAX_BUFFER_SIZE
-    if max_buffer_size is None or max_buffer_size <= 0:
-        return stream
 
     async def yield_safe_stream_chunks():
         buffer = b''
@@ -1002,7 +1002,7 @@ def stream_chunks_handler(stream: aiohttp.StreamReader):
                         yield b'data: {}\n'
                 else:
                     # Normal mode: check if line exceeds limit
-                    if len(line) > max_buffer_size:
+                    if max_buffer_size and max_buffer_size > 0 and len(line) > max_buffer_size:
                         skip_mode = True
                         yield b'data: {}\n'
                         log.info(f'Skip mode triggered, line size: {len(line)}')
@@ -1013,7 +1013,7 @@ def stream_chunks_handler(stream: aiohttp.StreamReader):
             buffer = lines[-1]
 
             # Check if buffer exceeds limit
-            if not skip_mode and len(buffer) > max_buffer_size:
+            if max_buffer_size and max_buffer_size > 0 and not skip_mode and len(buffer) > max_buffer_size:
                 skip_mode = True
                 log.info(f'Skip mode triggered, buffer size: {len(buffer)}')
                 # Clear oversized buffer to prevent unlimited growth

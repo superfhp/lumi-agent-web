@@ -1031,6 +1031,15 @@ OTEL_LOGS_OTLP_SPAN_EXPORTER = os.environ.get(
 ).lower()  # grpc or http
 
 ####################################
+# LANGFUSE  (LLM Observability)
+####################################
+
+ENABLE_LANGFUSE = os.environ.get('ENABLE_LANGFUSE', 'False').lower() == 'true'
+LANGFUSE_SECRET_KEY = os.environ.get('LANGFUSE_SECRET_KEY', '')
+LANGFUSE_PUBLIC_KEY = os.environ.get('LANGFUSE_PUBLIC_KEY', '')
+LANGFUSE_HOST = os.environ.get('LANGFUSE_HOST', 'https://cloud.langfuse.com')
+
+####################################
 # TOOLS/FUNCTIONS PIP OPTIONS
 ####################################
 

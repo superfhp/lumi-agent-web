@@ -112,7 +112,12 @@ async def stream_wrapper(response, session=None, content_handler=None):
     disconnects.  When using the shared pool, ``session`` should be ``None``.
     """
     try:
-        stream = content_handler(response.content) if content_handler else response.content
+        # Iterating over aiohttp.StreamReader directly is line-based and can
+        # raise LineTooLong for large SSE events (aiohttp limit: 128 KiB), for
+        # example Responses API response.completed events that contain the full
+        # response object.  Use chunk iteration unless a caller provides a
+        # parser/handler.
+        stream = content_handler(response.content) if content_handler else response.content.iter_any()
         async for chunk in stream:
             yield chunk
     finally:

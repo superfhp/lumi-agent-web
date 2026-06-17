@@ -138,9 +138,11 @@ from open_webui.env import (
     FORWARD_SESSION_INFO_HEADER_CHAT_ID,
     FORWARD_SESSION_INFO_HEADER_MESSAGE_ID,
     ENABLE_RESPONSES_API_STATEFUL,
+    ENABLE_LANGFUSE,
 )
 from open_webui.utils.headers import include_user_info_headers
 from open_webui.constants import TASKS
+from open_webui.utils.telemetry.langfuse_tracer import LangfuseTrace  # noqa: F401
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
@@ -2881,6 +2883,18 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # to prevent template parsing errors with strict chat templates (e.g. Qwen)
     form_data['messages'] = merge_system_messages(form_data.get('messages', []))
 
+    # If the model has the `usage` capability enabled, force
+    # `stream_options.include_usage=true` on streaming requests so analytics
+    # token counters get populated even when the frontend (older browser
+    # cache, non-Chat.svelte clients, API consumers) forgets to set it.
+    usage_capability = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('usage', False)
+    if usage_capability and form_data.get('stream'):
+        existing_stream_options = form_data.get('stream_options') or {}
+        if not isinstance(existing_stream_options, dict):
+            existing_stream_options = {}
+        if not existing_stream_options.get('include_usage'):
+            form_data['stream_options'] = {**existing_stream_options, 'include_usage': True}
+
     return form_data, metadata, events
 
 
@@ -3462,6 +3476,20 @@ async def non_streaming_chat_response_handler(response, ctx):
                                 },
                             )
 
+                    # ── Langfuse: record turn (LLM generation) ──
+                    langfuse_trace = ctx.get('langfuse_trace')
+                    if langfuse_trace and langfuse_trace.enabled:
+                        lf_turn = langfuse_trace.turn(
+                            name=f'turn_{ctx["metadata"].get("message_id", "")}',
+                            input=get_last_user_message(ctx['form_data'].get('messages', [])),
+                        )
+                        lf_gen = lf_turn.generation(
+                            model=ctx['form_data'].get('model', ''),
+                            input=ctx['form_data'].get('messages'),
+                        )
+                        lf_gen.end(output=content, usage=usage)
+                        lf_turn.end(output=content)
+
                     await background_tasks_handler(ctx)
                     ctx['assistant_message'] = {
                         'content': content,
@@ -3945,6 +3973,15 @@ async def streaming_chat_response_handler(response, ctx):
                                             response_id = response_metadata.pop('response_id', None)
                                             if response_id:
                                                 last_response_id = response_id
+                                        # Capture usage so it gets persisted to DB at the
+                                        # end of the stream (mirrors Chat Completions branch).
+                                        # Without this, Responses API streams (e.g. Hermes
+                                        # Agent / iquest gateway) write usage=null even though
+                                        # the final response.completed event includes it.
+                                        raw_usage = response_metadata.get('usage') or {}
+                                        if raw_usage:
+                                            usage = normalize_usage(raw_usage)
+                                            response_metadata['usage'] = usage
                                         processed_data.update(response_metadata)
                                         processed_data.pop('done', None)
 
@@ -4393,11 +4430,63 @@ async def streaming_chat_response_handler(response, ctx):
                         if responses_api_tool_calls:
                             tool_calls.append(_split_tool_calls(responses_api_tool_calls))
 
+                # ── Langfuse: turn for this user message ──
+                langfuse_trace = ctx.get('langfuse_trace')
+                lf_turn = None
+                lf_gen = None
+                if langfuse_trace and langfuse_trace.enabled:
+                    lf_turn = langfuse_trace.turn(
+                        name=f'turn_{metadata.get("message_id", "")}',
+                        input=get_last_user_message(form_data.get('messages', [])),
+                    )
+                    lf_gen = lf_turn.generation(
+                        model=model_id,
+                        input=form_data.get('messages'),
+                    )
+
                 try:
                     await stream_body_handler(response, form_data)
                 finally:
                     if response.background:
                         await response.background()
+
+                # ── Langfuse: end first generation ──
+                if lf_gen:
+                    lf_gen.end(
+                        output=serialize_output(output),
+                        usage=usage,
+                    )
+
+                # ── Langfuse: record upstream-handled tool calls as spans ──
+                # When the upstream agent (e.g. Hermes) handles tool calling
+                # internally, we observe function_call + function_call_output
+                # pairs in the output. Record each as a span under the current
+                # turn so every tool invocation is visible in Langfuse.
+                if lf_turn and lf_turn.enabled and output:
+                    # Build a map of call_id → function_call_output
+                    _fc_outputs = {}
+                    for item in output:
+                        if item.get('type') == 'function_call_output':
+                            _fc_outputs[item.get('call_id', '')] = item
+                    # Create a span for each observed function_call
+                    for item in output:
+                        if item.get('type') == 'function_call':
+                            call_id = item.get('call_id', '')
+                            fc_name = item.get('name', '')
+                            fc_args = item.get('arguments', '{}')
+                            fc_output_item = _fc_outputs.get(call_id)
+                            fc_result = ''
+                            if fc_output_item:
+                                parts = fc_output_item.get('output', [])
+                                fc_result = ''.join(
+                                    p.get('text', '') for p in parts if p.get('type') == 'input_text'
+                                )[:4096]
+                            lf_tool = lf_turn.tool_span(
+                                name=f'tool:{fc_name}',
+                                input=fc_args,
+                                metadata={'call_id': call_id, 'source': 'upstream'},
+                            )
+                            lf_tool.end(output=fc_result)
 
                 tool_call_retries = 0
                 tool_call_sources = []  # Track citation sources from tool results
@@ -4485,6 +4574,15 @@ async def streaming_chat_response_handler(response, ctx):
                         log.debug(f'Parsed args from {tool_args} to {tool_function_params}')
                         tool_call.setdefault('function', {})['arguments'] = json.dumps(tool_function_params)
 
+                        # ── Langfuse: tool call span (nested under current turn) ──
+                        lf_tool_span = None
+                        if lf_turn and lf_turn.enabled:
+                            lf_tool_span = lf_turn.tool_span(
+                                name=f'tool:{tool_function_name}',
+                                input=tool_function_params,
+                                metadata={'tool_call_id': tool_call_id},
+                            )
+
                         tool_result = None
                         tool = None
                         tool_type = None
@@ -4548,6 +4646,12 @@ async def streaming_chat_response_handler(response, ctx):
                             tool_result,
                             event_emitter,
                         )
+
+                        # ── Langfuse: end tool call span ──
+                        if lf_tool_span:
+                            lf_tool_span.end(
+                                output=str(tool_result)[:4096] if tool_result else '',
+                            )
 
                         # Extract citation sources from tool results
                         if (
@@ -4761,6 +4865,15 @@ async def streaming_chat_response_handler(response, ctx):
                         )
 
                         if isinstance(res, StreamingResponse):
+                            # ── Langfuse: new generation under same turn for retry ──
+                            lf_gen = None
+                            if lf_turn and lf_turn.enabled:
+                                lf_gen = lf_turn.generation(
+                                    model=model_id,
+                                    input=new_form_data.get('messages'),
+                                    metadata={'retry': tool_call_retries},
+                                )
+
                             # Save accumulated output and start fresh.
                             # Responses API output_index values are relative
                             # to the current response — a clean output list
@@ -4781,6 +4894,39 @@ async def streaming_chat_response_handler(response, ctx):
                                     prior_output.pop()
                             output = []
                             await stream_body_handler(res, new_form_data)
+
+                            # ── Langfuse: end retry generation ──
+                            if lf_gen:
+                                lf_gen.end(
+                                    output=serialize_output(output),
+                                    usage=usage,
+                                )
+
+                            # ── Langfuse: record upstream-handled tool calls from retry ──
+                            if lf_turn and lf_turn.enabled and output:
+                                _fc_outputs = {}
+                                for item in output:
+                                    if item.get('type') == 'function_call_output':
+                                        _fc_outputs[item.get('call_id', '')] = item
+                                for item in output:
+                                    if item.get('type') == 'function_call':
+                                        call_id = item.get('call_id', '')
+                                        fc_name = item.get('name', '')
+                                        fc_args = item.get('arguments', '{}')
+                                        fc_output_item = _fc_outputs.get(call_id)
+                                        fc_result = ''
+                                        if fc_output_item:
+                                            parts = fc_output_item.get('output', [])
+                                            fc_result = ''.join(
+                                                p.get('text', '') for p in parts if p.get('type') == 'input_text'
+                                            )[:4096]
+                                        lf_tool = lf_turn.tool_span(
+                                            name=f'tool:{fc_name}',
+                                            input=fc_args,
+                                            metadata={'call_id': call_id, 'source': 'upstream'},
+                                        )
+                                        lf_tool.end(output=fc_result)
+
                             output[:0] = prior_output
                             prior_output = []
                         else:
@@ -4788,6 +4934,11 @@ async def streaming_chat_response_handler(response, ctx):
                     except Exception as e:
                         log.debug(e)
                         break
+
+                # ── Langfuse: close turn ──
+                if lf_turn and lf_turn.enabled:
+                    lf_turn.end(output=serialize_output(full_output()))
+                    lf_turn = None
 
                 if DETECT_CODE_INTERPRETER:
                     MAX_RETRIES = 5
@@ -5105,6 +5256,27 @@ async def streaming_chat_response_handler(response, ctx):
 
 
 async def process_chat_response(response, ctx):
+    # ── Langfuse: get or create trace for this chat session ──
+    # Uses deterministic trace_id = chat_id so all messages in the same
+    # conversation append to a single trace in Langfuse.
+    langfuse_trace = None
+    if ENABLE_LANGFUSE:
+        user = ctx['user']
+        metadata = ctx['metadata']
+        chat_id = metadata.get('chat_id', '')
+        langfuse_trace = LangfuseTrace.start(
+            trace_id=chat_id,
+            name='chat_session',
+            user_id=user.id if hasattr(user, 'id') else str(user),
+            session_id=chat_id,
+            metadata={
+                'chat_id': chat_id,
+                'model': ctx['form_data'].get('model', ''),
+            },
+            tags=['openwebui'],
+        )
+    ctx['langfuse_trace'] = langfuse_trace
+
     # Non-streaming response
     if not isinstance(response, StreamingResponse):
         return await non_streaming_chat_response_handler(response, ctx)
