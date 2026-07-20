@@ -5264,14 +5264,24 @@ async def process_chat_response(response, ctx):
         user = ctx['user']
         metadata = ctx['metadata']
         chat_id = metadata.get('chat_id', '')
+        _uid = user.id if hasattr(user, 'id') else str(user)
+        _messages = ctx['form_data'].get('messages', [])
+        _first_user_msg = next(
+            (m.get('content') for m in _messages if m.get('role') == 'user'),
+            None,
+        )
         langfuse_trace = LangfuseTrace.start(
             trace_id=chat_id,
             name='chat_session',
-            user_id=user.id if hasattr(user, 'id') else str(user),
+            user_id=_uid,
             session_id=chat_id,
+            input=_first_user_msg,
             metadata={
                 'chat_id': chat_id,
-                'model': ctx['form_data'].get('model', ''),
+                'agent_id': ctx['model'].get('name', '') if isinstance(ctx.get('model'), dict) else '',
+                'model_id': ctx['form_data'].get('model', ''),
+                'user_id': _uid,
+                'username': getattr(user, 'name', None) or getattr(user, 'username', None) or '',
             },
             tags=['openwebui'],
         )

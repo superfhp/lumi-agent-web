@@ -110,6 +110,7 @@ class LangfuseTrace:
         name: str = 'chat_session',
         user_id: str | None = None,
         session_id: str | None = None,
+        input: Any = None,
         metadata: dict | None = None,
         tags: list[str] | None = None,
     ) -> LangfuseTrace:
@@ -119,13 +120,14 @@ class LangfuseTrace:
         all turns in the same conversation land in one trace.
         ``session_id`` can be the same as trace_id (Langfuse uses it
         for grouping in the Sessions view).
+        ``input`` should be the first user message in the conversation.
         """
         obj = cls()
         client = get_langfuse()
         if client is None:
             return obj
         try:
-            obj._trace = client.trace(
+            kw: dict[str, Any] = dict(
                 id=trace_id,
                 name=name,
                 user_id=user_id,
@@ -133,6 +135,9 @@ class LangfuseTrace:
                 metadata=metadata or {},
                 tags=tags or [],
             )
+            if input is not None:
+                kw['input'] = input
+            obj._trace = client.trace(**kw)
         except Exception as e:
             log.warning('Failed to create/get Langfuse trace: %s', e)
         return obj
