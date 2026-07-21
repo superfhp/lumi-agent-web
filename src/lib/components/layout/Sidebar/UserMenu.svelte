@@ -676,8 +676,3 @@
 		</div>
 	</div>
 </Dropdown>
-cd /opt/lumi-agent-web
-
-export PUBLIC_BASE_PATH="/siflow/auriga/skyinfer/xyli05/lumi-agent-web/v1/8888"
-
-npm run build
