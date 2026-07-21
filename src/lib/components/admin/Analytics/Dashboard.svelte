@@ -17,7 +17,7 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { formatNumber } from '$lib/utils';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 
 	const i18n = getContext('i18n');
 
@@ -394,7 +394,7 @@
 											alt={model.name}
 											class="size-5 rounded-full object-cover shrink-0"
 											on:error={(e) => {
-												e.target.src = '/favicon.png';
+												e.target.src = `${WEBUI_BASE_URL}/static/favicon.png`;
 											}}
 										/>
 										<span class="truncate max-w-[150px]">{model.name}</span>

@@ -29,7 +29,7 @@
 	// Assuming $i18n.languages is an array of language codes
 	$: loadLocale($i18n.languages);
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { WEBUI_NAME, config, user, pinnedNotes } from '$lib/stores';
 	import {
 		createNewNote,

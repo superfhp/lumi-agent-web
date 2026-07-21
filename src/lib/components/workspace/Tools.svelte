@@ -8,7 +8,7 @@
 
 	import { WEBUI_NAME, config, tools as _tools, user } from '$lib/stores';
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import {
 		createNewTool,
 		loadToolByUrl,

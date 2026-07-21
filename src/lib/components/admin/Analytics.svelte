@@ -1,6 +1,6 @@
 <script>
 	import { onMount, getContext } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { user } from '$lib/stores';
 
 	import Dashboard from './Analytics/Dashboard.svelte';

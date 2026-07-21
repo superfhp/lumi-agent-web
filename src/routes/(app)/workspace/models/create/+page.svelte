@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { config, models, settings } from '$lib/stores';
 	import { WEBUI_BASE_URL } from '$lib/constants';
 

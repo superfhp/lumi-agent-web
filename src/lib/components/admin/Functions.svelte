@@ -6,7 +6,7 @@
 	import { WEBUI_NAME, config, functions as _functions, models, settings, user } from '$lib/stores';
 	import { onMount, getContext, tick, onDestroy } from 'svelte';
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import {
 		createNewFunction,
 		deleteFunctionById,

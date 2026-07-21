@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { page } from '$app/stores';
 
 	import dayjs from '$lib/dayjs';

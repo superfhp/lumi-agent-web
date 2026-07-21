@@ -1,6 +1,6 @@
 <script>
 	import { getContext, tick, onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { page } from '$app/stores';
 
 	import Leaderboard from './Evaluations/Leaderboard.svelte';

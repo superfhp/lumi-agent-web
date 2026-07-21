@@ -15,9 +15,10 @@
 	import { createMessagesList } from '$lib/utils';
 	import { config, user } from '$lib/stores';
 	import Messages from '../chat/Messages.svelte';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import PageEdit from '../icons/PageEdit.svelte';
+	import { getWebUIPath } from '$lib/constants';
 	dayjs.extend(calendar);
 	dayjs.extend(localizedFormat);
 
@@ -28,7 +29,7 @@
 		{
 			label: $i18n.t('Start a new conversation'),
 			onClick: async () => {
-				await goto(`/${query ? `?q=${query}` : ''}`);
+				await goto(getWebUIPath(`/${query ? `?q=${query}` : ''}`));
 				show = false;
 				onClose();
 			},

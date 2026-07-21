@@ -3,7 +3,7 @@
 	import { v4 as uuidv4 } from 'uuid';
 	import Sortable from 'sortablejs';
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import {
 		user,
 		chats,

@@ -14,7 +14,7 @@
 		exportKnowledgeById
 	} from '$lib/apis/knowledge';
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { capitalizeFirstLetter } from '$lib/utils';
 
 	import DeleteConfirmDialog from '../common/ConfirmDialog.svelte';

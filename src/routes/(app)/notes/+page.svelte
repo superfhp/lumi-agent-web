@@ -5,7 +5,7 @@
 
 	import dayjs from '$lib/dayjs';
 	import { mobile, showArchivedChats, showSidebar, user } from '$lib/stores';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { page } from '$app/stores';
 
 	import { createNoteHandler } from '$lib/components/notes/utils';

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, showSidebar } from '$lib/stores';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { onMount, getContext, onDestroy } from 'svelte';
 
 	import dayjs from 'dayjs';
@@ -379,7 +379,7 @@
 										src={`${WEBUI_API_BASE_URL}/users/${user.id}/profile/image`}
 										alt="user"
 										on:error={(e) => {
-											e.currentTarget.src = '/favicon.png';
+											e.currentTarget.src = `${WEBUI_BASE_URL}/static/favicon.png`;
 										}}
 									/>
 								</ProfilePreview>

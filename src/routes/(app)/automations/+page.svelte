@@ -2,7 +2,7 @@
 	import { onMount, onDestroy, getContext } from 'svelte';
 
 	import { toast } from 'svelte-sonner';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { WEBUI_NAME, mobile, showSidebar, user, config } from '$lib/stores';
 
 	import {

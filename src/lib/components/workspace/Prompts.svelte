@@ -3,7 +3,7 @@
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { onMount, getContext, tick, onDestroy } from 'svelte';
 	import { WEBUI_NAME, config, user } from '$lib/stores';
 

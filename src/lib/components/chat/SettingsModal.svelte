@@ -4,7 +4,7 @@
 	import { config, models, settings, user } from '$lib/stores';
 	import { updateUserSettings } from '$lib/apis/users';
 	import { getModels as _getModels } from '$lib/apis';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 
 	import Modal from '../common/Modal.svelte';
 	import Account from './Settings/Account.svelte';

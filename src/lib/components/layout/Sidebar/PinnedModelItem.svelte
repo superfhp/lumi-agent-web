@@ -40,7 +40,7 @@
 					class=" size-5 rounded-full -translate-x-[0.5px]"
 					alt="logo"
 					on:error={(e) => {
-						e.currentTarget.src = '/favicon.png';
+						e.currentTarget.src = `${WEBUI_BASE_URL}/static/favicon.png`;
 					}}
 				/>
 			</div>

@@ -11,7 +11,7 @@
 	import { slugify, parseFrontmatter, formatSkillName } from '$lib/utils';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { updateSkillAccessGrants } from '$lib/apis/skills';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 
 	export let onSubmit: Function;
 	export let edit = false;

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext, onMount, tick } from 'svelte';
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { fade, slide } from 'svelte/transition';
 
 	import { getUsage } from '$lib/apis';
@@ -256,7 +256,7 @@
 
 			{#if role === 'admin'}
 				<a
-					href="/admin"
+					href={getWebUIPath('/admin')}
 					draggable="false"
 					class="flex rounded-xl py-1.5 px-3 w-full hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer select-none"
 					on:click={async (e) => {
@@ -265,7 +265,7 @@
 						}
 						e.preventDefault();
 						show = false;
-						goto('/admin');
+						goto(getWebUIPath('/admin'));
 						if ($mobile) {
 							await tick();
 							showSidebar.set(false);
@@ -305,14 +305,14 @@
 			{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models || $user?.permissions?.workspace?.knowledge || $user?.permissions?.workspace?.prompts || $user?.permissions?.workspace?.tools}
 				<div class="flex items-center w-full">
 					<a
-						href="/workspace"
+						href={getWebUIPath('/workspace')}
 						draggable="false"
 						class="flex flex-1 rounded-xl py-1.5 px-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer select-none"
 						on:click={async (e) => {
 							if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
 							e.preventDefault();
 							show = false;
-							goto('/workspace');
+							goto(getWebUIPath('/workspace'));
 							if ($mobile) {
 								await tick();
 								showSidebar.set(false);

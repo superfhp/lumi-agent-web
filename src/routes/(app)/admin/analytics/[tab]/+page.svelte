@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { config } from '$lib/stores';
 	import Analytics from '$lib/components/admin/Analytics.svelte';
 

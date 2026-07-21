@@ -10,7 +10,7 @@
 	import { toast } from 'svelte-sonner';
 	import equal from 'fast-deep-equal';
 
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 
 	import dayjs from '$lib/dayjs';
 	import calendar from 'dayjs/plugin/calendar';

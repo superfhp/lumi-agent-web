@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, getContext } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	import { page } from '$app/stores';
 
 	import dayjs from 'dayjs';

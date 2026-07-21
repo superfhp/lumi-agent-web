@@ -8,7 +8,7 @@
 	const { saveAs } = fileSaver;
 
 	import { onMount, getContext, tick } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto } from '$lib/navigation';
 	const i18n = getContext('i18n');
 
 	import { WEBUI_NAME, config, mobile, models as _models, settings, user } from '$lib/stores';
@@ -604,7 +604,7 @@
 												loading="lazy"
 												decoding="async"
 												on:error={(e) => {
-													e.target.src = '/favicon.png';
+													e.target.src = `${WEBUI_BASE_URL}/static/favicon.png`;
 												}}
 											/>
 										</div>

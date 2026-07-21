@@ -61,7 +61,7 @@
 								alt="logo"
 								draggable="false"
 								on:error={(e) => {
-									e.currentTarget.src = '/favicon.png';
+									e.currentTarget.src = `${WEBUI_BASE_URL}/static/favicon.png`;
 								}}
 							/>
 						</Tooltip>
