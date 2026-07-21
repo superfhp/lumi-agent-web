@@ -1,11 +1,17 @@
 import { browser, dev } from '$app/environment';
+import { base } from '$app/paths';
 // import { version } from '../../package.json';
 
 export const APP_NAME = 'Innvation Operation';
 
+export const WEBUI_BASE_PATH = browser ? (dev ? '' : base) : '';
 export const WEBUI_HOSTNAME = browser ? (dev ? `${location.hostname}:8888` : ``) : '';
-export const WEBUI_BASE_URL = browser ? (dev ? `http://${WEBUI_HOSTNAME}` : ``) : ``;
+export const WEBUI_BASE_URL = browser ? (dev ? `http://${WEBUI_HOSTNAME}` : WEBUI_BASE_PATH) : ``;
 export const WEBUI_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1`;
+export const getWebUIPath = (path: string) => {
+	const normalized = path.startsWith('/') ? path : `/${path}`;
+	return `${WEBUI_BASE_PATH}${normalized}` || '/';
+};
 
 export const OLLAMA_API_BASE_URL = `${WEBUI_BASE_URL}/ollama`;
 export const OPENAI_API_BASE_URL = `${WEBUI_BASE_URL}/openai`;

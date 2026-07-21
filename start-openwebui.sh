@@ -3,6 +3,10 @@ set -euo pipefail
 
 cd /opt/lumi-agent-web
 
+# Path-prefix used by the Siflow route for this service. It is required both
+# by the SvelteKit build and by the FastAPI prefix-stripping middleware.
+export PUBLIC_BASE_PATH="${PUBLIC_BASE_PATH:-/siflow/auriga/skyinfer/xyli05/lumi-agent-web/v1/8888}"
+
 # CORS：如果前后端同端口生产部署，通常 * 就够；也可以按实际域名收窄
 export CORS_ALLOW_ORIGIN="${CORS_ALLOW_ORIGIN:-*}"
 

@@ -15,7 +15,7 @@
 	import { getTerminalServers } from '$lib/apis/terminal';
 	import { getUserSettings } from '$lib/apis/users';
 
-	import { WEBUI_VERSION, WEBUI_API_BASE_URL } from '$lib/constants';
+	import { WEBUI_VERSION, WEBUI_API_BASE_URL, WEBUI_BASE_PATH, getWebUIPath } from '$lib/constants';
 	import { compareVersion } from '$lib/utils';
 
 	import {
@@ -194,7 +194,7 @@
 
 	onMount(async () => {
 		if ($user === undefined || $user === null) {
-			await goto('/auth');
+			await goto(getWebUIPath('/auth'));
 			return;
 		}
 		if (!['user', 'admin'].includes($user?.role)) {
@@ -296,7 +296,7 @@
 					} else {
 						temporaryChatEnabled.set(!$temporaryChatEnabled);
 					}
-					await goto('/');
+						await goto(getWebUIPath('/'));
 					setTimeout(() => {
 						document.getElementById('new-chat-button')?.click();
 					}, 0);

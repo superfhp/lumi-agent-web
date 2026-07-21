@@ -17,7 +17,7 @@
 		settings
 	} from '$lib/stores';
 
-	import { WEBUI_API_BASE_URL } from '$lib/constants';
+	import { WEBUI_API_BASE_URL, getWebUIPath } from '$lib/constants';
 
 	import Dropdown from '$lib/components/common/Dropdown.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -628,7 +628,7 @@
 					user.set(null);
 					localStorage.removeItem('token');
 
-					location.href = res?.redirect_url ?? '/auth';
+						location.href = res?.redirect_url ?? getWebUIPath('/auth');
 					show = false;
 				}}
 			>
@@ -676,3 +676,8 @@
 		</div>
 	</div>
 </Dropdown>
+cd /opt/lumi-agent-web
+
+export PUBLIC_BASE_PATH="/siflow/auriga/skyinfer/xyli05/lumi-agent-web/v1/8888"
+
+npm run build

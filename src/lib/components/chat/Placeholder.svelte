@@ -131,7 +131,11 @@
 											aria-hidden="true"
 											draggable="false"
 											on:error={(e) => {
-												e.currentTarget.src = '/favicon.png';
+												const fallback = `${WEBUI_BASE_URL}/static/favicon.png`;
+													const fallbackUrl = new URL(fallback, window.location.origin).href;
+													if (e.currentTarget.src !== fallbackUrl) {
+														e.currentTarget.src = fallback;
+													}
 											}}
 										/>
 									</button>

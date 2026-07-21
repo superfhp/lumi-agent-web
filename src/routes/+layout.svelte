@@ -62,7 +62,14 @@
 		removeTerminalConnection
 	} from '$lib/utils/connections';
 
-	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL, WEBUI_HOSTNAME } from '$lib/constants';
+	import {
+		WEBUI_API_BASE_URL,
+		WEBUI_BASE_PATH,
+		WEBUI_BASE_URL,
+		WEBUI_HOSTNAME,
+		getWebUIPath
+	} from '$lib/constants';
+	import { installBasePathGuard } from '$lib/base-path-guard';
 	import { bestMatchingLanguage, displayFileHandler, getUserTimezone } from '$lib/utils';
 	import { setTextScale } from '$lib/utils/text-scale';
 
@@ -73,6 +80,8 @@
 	import { getUserSettings } from '$lib/apis/users';
 	import dayjs from 'dayjs';
 	import { getChannels } from '$lib/apis/channels';
+
+	installBasePathGuard();
 
 	const unregisterServiceWorkers = async () => {
 		if ('serviceWorker' in navigator) {
@@ -118,7 +127,7 @@
 			reconnectionDelay: 1000,
 			reconnectionDelayMax: 5000,
 			randomizationFactor: 0.5,
-			path: '/ws/socket.io',
+			path: `${WEBUI_BASE_PATH}/ws/socket.io`,
 			transports: enableWebsocket ? ['websocket'] : ['polling', 'websocket'],
 			auth: { token: localStorage.token }
 		});
@@ -495,7 +504,7 @@
 					) {
 						playingNotificationSound.set(true);
 
-						const audio = new Audio(`/audio/notification.mp3`);
+						const audio = new Audio(getWebUIPath('/audio/notification.mp3'));
 						audio.play().finally(() => {
 							// Ensure the global state is reset after the sound finishes
 							playingNotificationSound.set(false);
@@ -744,7 +753,7 @@
 			user.set(null);
 			localStorage.removeItem('token');
 
-			location.href = res?.redirect_url ?? '/auth';
+			location.href = res?.redirect_url ?? getWebUIPath('/auth');
 		}
 	};
 
@@ -989,7 +998,7 @@
 			if (error?.authRedirect) {
 				// Forward-auth proxy is redirecting to an external login page.
 				// Full-page navigation lets the browser follow the redirect natively.
-				window.location.href = '/';
+					window.location.href = getWebUIPath('/');
 				return;
 			}
 			console.error('Error loading backend config:', error);
@@ -1054,13 +1063,13 @@
 					} else {
 						// Redirect Invalid Session User to /auth Page
 						localStorage.removeItem('token');
-						await goto(`/auth?redirect=${encodedUrl}`);
+						await goto(getWebUIPath(`/auth?redirect=${encodedUrl}`));
 					}
 				} else {
 					// Don't redirect if we're already on the auth page
 					// Needed because we pass in tokens from OAuth logins via URL fragments
-					if ($page.url.pathname !== '/auth') {
-						await goto(`/auth?redirect=${encodedUrl}`);
+					if (!$page.url.pathname.endsWith('/auth')) {
+						await goto(getWebUIPath(`/auth?redirect=${encodedUrl}`));
 					}
 				}
 			}
@@ -1087,7 +1096,7 @@
 
 			document.getElementById('splash-screen')?.remove();
 
-			const audio = new Audio(`/audio/greeting.mp3`);
+			const audio = new Audio(getWebUIPath('/audio/greeting.mp3'));
 			const playAudio = () => {
 				audio.play();
 				document.removeEventListener('click', playAudio);

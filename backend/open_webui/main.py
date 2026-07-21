@@ -753,6 +753,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+PUBLIC_BASE_PATH = os.environ.get('PUBLIC_BASE_PATH', '').rstrip('/')
+
+
+class StripPublicBasePathMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if PUBLIC_BASE_PATH and scope.get('type') in {'http', 'websocket'}:
+            path = scope.get('path', '')
+            if path == PUBLIC_BASE_PATH:
+                scope = {**scope, 'path': '/'}
+            elif path.startswith(PUBLIC_BASE_PATH + '/'):
+                scope = {**scope, 'path': path[len(PUBLIC_BASE_PATH):] or '/'}
+        await self.app(scope, receive, send)
+
+
+if PUBLIC_BASE_PATH:
+    app.add_middleware(StripPublicBasePathMiddleware)
+
+
 # Used by readiness checks to gate traffic until startup work is done.
 app.state.startup_complete = False
 
