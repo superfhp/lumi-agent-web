@@ -1902,7 +1902,7 @@ async def chat_completion(
             raise  # re-raise to ensure proper task cancellation handling
         except Exception as e:
             error_detail = e.detail if isinstance(e, HTTPException) else str(e)
-            log.error('Error processing chat payload: %s', error_detail)
+            log.exception('Error processing chat payload: %s', error_detail)
             if metadata.get('chat_id') and metadata.get('message_id'):
                 # Update the chat message with the error
                 try:

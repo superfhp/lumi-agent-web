@@ -122,7 +122,8 @@
 	const BREAKPOINT = 768;
 
 	const setupSocket = async (enableWebsocket) => {
-		const _socket = io(`${WEBUI_BASE_URL}` || undefined, {
+		const socketUrl = WEBUI_BASE_URL.startsWith('http') ? WEBUI_BASE_URL : undefined;
+		const _socket = io(socketUrl, {
 			reconnection: true,
 			reconnectionDelay: 1000,
 			reconnectionDelayMax: 5000,
