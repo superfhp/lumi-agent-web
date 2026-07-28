@@ -1,40 +1,21 @@
 """
 Langfuse LLM observability integration for Open WebUI.
 
-Captures LLM completions, tool calls, reasoning, and streaming lifecycle
-as structured traces in Langfuse for observability across agent gateways.
-
-Enable via environment variables::
-
-    ENABLE_LANGFUSE=true
-    LANGFUSE_SECRET_KEY=sk-lf-...
-    LANGFUSE_PUBLIC_KEY=pk-lf-...
-    LANGFUSE_HOST=https://cloud.langfuse.com   # or self-hosted URL
-
-Architecture: ONE trace per chat session (chat_id), each user message
-appends a "turn" span. This gives a complete conversation timeline in
-a single Langfuse trace view.
-
-Span hierarchy::
-
-    Trace  (id = chat_id, name = "chat_session")
-    ├── Span  turn_1  (input: user msg 1)
-    │   ├── Generation  llm_call
-    │   ├── Span        tool:search_web
-    │   └── Span        tool:fetch_url
-    ├── Span  turn_2  (input: user msg 2)
-    │   └── Generation  llm_call
-    ├── Span  turn_3  (input: user msg 3)
-    │   ├── Generation  llm_call
-    │   └── Span        tool:analyze
-    └── ...
+This implementation sends events directly to Langfuse's public ingestion API
+instead of relying on the Python SDK. The SDK can emit payloads that are not
+compatible with this self-hosted Langfuse server version, while the public
+`/api/public/ingestion` API has been verified to work for this deployment.
 """
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import sys
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from open_webui.env import (
     ENABLE_LANGFUSE,
@@ -47,51 +28,94 @@ from open_webui.env import (
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────────────────────────────
-# Singleton client
-# ──────────────────────────────────────────────────────────────────────
 _langfuse_client = None
 
 
-def get_langfuse():
-    """Lazily create and return the singleton Langfuse client.
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
-    Returns ``None`` when Langfuse is disabled or the SDK is missing.
-    """
+
+def _jsonable(value: Any) -> Any:
+    try:
+        json.dumps(value)
+        return value
+    except Exception:
+        return str(value)
+
+
+def _clean(d: dict[str, Any]) -> dict[str, Any]:
+    return {k: _jsonable(v) for k, v in d.items() if v is not None}
+
+
+class _IngestionClient:
+    def __init__(self, *, public_key: str, secret_key: str, host: str):
+        self.host = host.rstrip('/')
+        self.endpoint = f'{self.host}/api/public/ingestion'
+        token = base64.b64encode(f'{public_key}:{secret_key}'.encode()).decode()
+        self.headers = {
+            'Authorization': f'Basic {token}',
+            'Content-Type': 'application/json',
+        }
+        self._batch: list[dict[str, Any]] = []
+
+    def emit(self, event_type: str, body: dict[str, Any]) -> None:
+        self._batch.append(
+            {
+                'id': str(uuid4()),
+                'timestamp': _now(),
+                'type': event_type,
+                'body': _clean(body),
+            }
+        )
+
+    def flush(self) -> None:
+        if not self._batch:
+            return
+        batch = self._batch
+        self._batch = []
+        payload = {'batch': batch}
+        try:
+            import httpx
+
+            resp = httpx.post(
+                self.endpoint,
+                headers=self.headers,
+                content=json.dumps(payload, ensure_ascii=False, default=str),
+                timeout=20,
+            )
+            if resp.status_code < 200 or resp.status_code >= 300:
+                log.error(
+                    'Langfuse ingestion failed: status=%s body=%s',
+                    resp.status_code,
+                    resp.text[:1000],
+                )
+            else:
+                log.debug('Langfuse ingestion flushed %s event(s)', len(batch))
+        except Exception as e:
+            log.error('Langfuse ingestion request failed: %s', e)
+
+    def shutdown(self) -> None:
+        self.flush()
+
+
+def get_langfuse():
     global _langfuse_client
     if not ENABLE_LANGFUSE:
         return None
     if _langfuse_client is None:
         try:
-            from langfuse import Langfuse  # noqa: F811 – lazy import
-
-            _langfuse_client = Langfuse(
+            _langfuse_client = _IngestionClient(
                 secret_key=LANGFUSE_SECRET_KEY,
                 public_key=LANGFUSE_PUBLIC_KEY,
                 host=LANGFUSE_HOST,
             )
-            log.info('Langfuse client initialised (host=%s)', LANGFUSE_HOST)
-        except ImportError:
-            log.warning(
-                'ENABLE_LANGFUSE is true but the langfuse package is not installed. '
-                'Run: pip install langfuse'
-            )
+            log.info('Langfuse ingestion client initialised (host=%s)', LANGFUSE_HOST)
         except Exception as e:
-            log.error('Failed to initialise Langfuse: %s', e)
+            log.error('Failed to initialise Langfuse ingestion client: %s', e)
     return _langfuse_client
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Trace  –  one per chat session (chat_id)
-# ──────────────────────────────────────────────────────────────────────
 class LangfuseTrace:
-    """Exception-safe wrapper around a Langfuse *trace*.
-
-    Uses a deterministic trace ID (= chat_id) so that every message in
-    the same chat session appends to the same trace.  Langfuse upserts
-    on the server side: first call creates, subsequent calls merge.
-    """
-
     __slots__ = ('_trace',)
 
     def __init__(self):
@@ -101,7 +125,6 @@ class LangfuseTrace:
     def enabled(self) -> bool:
         return self._trace is not None
 
-    # ── factory ───────────────────────────────────────────────────────
     @classmethod
     def start(
         cls,
@@ -113,44 +136,38 @@ class LangfuseTrace:
         input: Any = None,
         metadata: dict | None = None,
         tags: list[str] | None = None,
-    ) -> LangfuseTrace:
-        """Get or create a trace for this chat session.
-
-        ``trace_id`` should be the chat_id — Langfuse will upsert so
-        all turns in the same conversation land in one trace.
-        ``session_id`` can be the same as trace_id (Langfuse uses it
-        for grouping in the Sessions view).
-        ``input`` should be the first user message in the conversation.
-        """
+    ) -> 'LangfuseTrace':
         obj = cls()
         client = get_langfuse()
         if client is None:
             return obj
         try:
-            kw: dict[str, Any] = dict(
-                id=trace_id,
-                name=name,
-                user_id=user_id,
-                session_id=session_id,
-                metadata=metadata or {},
-                tags=tags or [],
+            trace_id = trace_id or str(uuid4())
+            client.emit(
+                'trace-create',
+                {
+                    'id': trace_id,
+                    'timestamp': _now(),
+                    'name': name,
+                    'userId': user_id,
+                    'sessionId': session_id,
+                    'input': input,
+                    'metadata': metadata or {},
+                    'tags': tags or [],
+                },
             )
-            if input is not None:
-                kw['input'] = input
-            obj._trace = client.trace(**kw)
+            obj._trace = {'id': trace_id, 'client': client}
         except Exception as e:
             log.warning('Failed to create/get Langfuse trace: %s', e)
         return obj
 
-    # ── turn (one user message → assistant response cycle) ───────────
     def turn(
         self,
         *,
         name: str = 'turn',
         input: Any = None,
         metadata: dict | None = None,
-    ) -> LangfuseTurn:
-        """Create a child *turn* span for this user message."""
+    ) -> 'LangfuseTurn':
         return LangfuseTurn.start(
             parent=self._trace,
             name=name,
@@ -158,26 +175,18 @@ class LangfuseTrace:
             metadata=metadata,
         )
 
-    # ── lifecycle ────────────────────────────────────────────────────
     def update(self, **kwargs: Any) -> None:
         if self._trace:
             try:
-                self._trace.update(**kwargs)
+                self._trace['client'].emit(
+                    'trace-create',
+                    {'id': self._trace['id'], 'timestamp': _now(), **kwargs},
+                )
             except Exception as e:
                 log.debug('Langfuse trace update failed: %s', e)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Turn  –  one user-message → response cycle
-# ──────────────────────────────────────────────────────────────────────
 class LangfuseTurn:
-    """Exception-safe wrapper representing one conversational turn.
-
-    A turn contains:
-    - One or more LLM generation (the model calls, including retries)
-    - Zero or more tool call spans
-    """
-
     __slots__ = ('_span', '_round_counter')
 
     def __init__(self):
@@ -196,16 +205,24 @@ class LangfuseTurn:
         name: str,
         input: Any = None,
         metadata: dict | None = None,
-    ) -> LangfuseTurn:
+    ) -> 'LangfuseTurn':
         obj = cls()
         if parent is None:
             return obj
         try:
-            obj._span = parent.span(
-                name=name,
-                input=input,
-                metadata=metadata or {},
+            span_id = str(uuid4())
+            parent['client'].emit(
+                'span-create',
+                {
+                    'id': span_id,
+                    'traceId': parent['id'],
+                    'name': name,
+                    'startTime': _now(),
+                    'input': input,
+                    'metadata': metadata or {},
+                },
             )
+            obj._span = {'id': span_id, 'trace_id': parent['id'], 'client': parent['client']}
         except Exception as e:
             log.debug('Langfuse turn create failed: %s', e)
         return obj
@@ -217,10 +234,9 @@ class LangfuseTurn:
         input: Any = None,
         metadata: dict | None = None,
         model_parameters: dict | None = None,
-    ) -> LangfuseGeneration:
-        """Create an LLM *generation* nested under this turn."""
+    ) -> 'LangfuseGeneration':
         self._round_counter += 1
-        name = f'llm_call' if self._round_counter == 1 else f'llm_call_{self._round_counter}'
+        name = 'llm_call' if self._round_counter == 1 else f'llm_call_{self._round_counter}'
         return LangfuseGeneration.start(
             parent=self._span,
             name=name,
@@ -236,8 +252,7 @@ class LangfuseTurn:
         name: str,
         input: Any = None,
         metadata: dict | None = None,
-    ) -> LangfuseSpan:
-        """Create a tool call *span* nested under this turn."""
+    ) -> 'LangfuseSpan':
         return LangfuseSpan.start(
             parent=self._span,
             name=name,
@@ -248,22 +263,21 @@ class LangfuseTurn:
     def end(self, *, output: Any = None, metadata: dict | None = None) -> None:
         if self._span:
             try:
-                kw: dict[str, Any] = {}
-                if output is not None:
-                    kw['output'] = output
-                if metadata:
-                    kw['metadata'] = metadata
-                self._span.end(**kw)
+                self._span['client'].emit(
+                    'span-update',
+                    {
+                        'id': self._span['id'],
+                        'traceId': self._span['trace_id'],
+                        'endTime': _now(),
+                        'output': output,
+                        'metadata': metadata,
+                    },
+                )
             except Exception as e:
                 log.debug('Langfuse turn end failed: %s', e)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Generation  –  one LLM invocation
-# ──────────────────────────────────────────────────────────────────────
 class LangfuseGeneration:
-    """Exception-safe wrapper around a Langfuse *generation*."""
-
     __slots__ = ('_gen',)
 
     def __init__(self):
@@ -283,18 +297,27 @@ class LangfuseGeneration:
         input: Any = None,
         metadata: dict | None = None,
         model_parameters: dict | None = None,
-    ) -> LangfuseGeneration:
+    ) -> 'LangfuseGeneration':
         obj = cls()
         if parent is None:
             return obj
         try:
-            obj._gen = parent.generation(
-                name=name,
-                model=model,
-                input=input,
-                metadata=metadata or {},
-                model_parameters=model_parameters or {},
+            gen_id = str(uuid4())
+            parent['client'].emit(
+                'generation-create',
+                {
+                    'id': gen_id,
+                    'traceId': parent['trace_id'],
+                    'parentObservationId': parent['id'],
+                    'name': name,
+                    'startTime': _now(),
+                    'model': model,
+                    'input': input,
+                    'metadata': metadata or {},
+                    'modelParameters': model_parameters or {},
+                },
             )
+            obj._gen = {'id': gen_id, 'trace_id': parent['trace_id'], 'client': parent['client']}
         except Exception as e:
             log.debug('Langfuse generation create failed: %s', e)
         return obj
@@ -302,7 +325,10 @@ class LangfuseGeneration:
     def update(self, **kwargs: Any) -> None:
         if self._gen:
             try:
-                self._gen.update(**kwargs)
+                self._gen['client'].emit(
+                    'generation-update',
+                    {'id': self._gen['id'], 'traceId': self._gen['trace_id'], **kwargs},
+                )
             except Exception as e:
                 log.debug('Langfuse generation update failed: %s', e)
 
@@ -317,28 +343,24 @@ class LangfuseGeneration:
     ) -> None:
         if self._gen:
             try:
-                kw: dict[str, Any] = {}
-                if output is not None:
-                    kw['output'] = output
-                if usage:
-                    kw['usage'] = usage
-                if metadata:
-                    kw['metadata'] = metadata
-                if level:
-                    kw['level'] = level
-                if status_message:
-                    kw['status_message'] = status_message
-                self._gen.end(**kw)
+                self._gen['client'].emit(
+                    'generation-update',
+                    {
+                        'id': self._gen['id'],
+                        'traceId': self._gen['trace_id'],
+                        'endTime': _now(),
+                        'output': output,
+                        'usage': usage,
+                        'metadata': metadata,
+                        'level': level,
+                        'statusMessage': status_message,
+                    },
+                )
             except Exception as e:
                 log.debug('Langfuse generation end failed: %s', e)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Span  –  tool call, reasoning block, etc.
-# ──────────────────────────────────────────────────────────────────────
 class LangfuseSpan:
-    """Exception-safe wrapper around a Langfuse *span*."""
-
     __slots__ = ('_span',)
 
     def __init__(self):
@@ -356,16 +378,25 @@ class LangfuseSpan:
         name: str,
         input: Any = None,
         metadata: dict | None = None,
-    ) -> LangfuseSpan:
+    ) -> 'LangfuseSpan':
         obj = cls()
         if parent is None:
             return obj
         try:
-            obj._span = parent.span(
-                name=name,
-                input=input,
-                metadata=metadata or {},
+            span_id = str(uuid4())
+            parent['client'].emit(
+                'span-create',
+                {
+                    'id': span_id,
+                    'traceId': parent['trace_id'],
+                    'parentObservationId': parent['id'],
+                    'name': name,
+                    'startTime': _now(),
+                    'input': input,
+                    'metadata': metadata or {},
+                },
             )
+            obj._span = {'id': span_id, 'trace_id': parent['trace_id'], 'client': parent['client']}
         except Exception as e:
             log.debug('Langfuse span create failed: %s', e)
         return obj
@@ -380,25 +411,23 @@ class LangfuseSpan:
     ) -> None:
         if self._span:
             try:
-                kw: dict[str, Any] = {}
-                if output is not None:
-                    kw['output'] = output
-                if metadata:
-                    kw['metadata'] = metadata
-                if level:
-                    kw['level'] = level
-                if status_message:
-                    kw['status_message'] = status_message
-                self._span.end(**kw)
+                self._span['client'].emit(
+                    'span-update',
+                    {
+                        'id': self._span['id'],
+                        'traceId': self._span['trace_id'],
+                        'endTime': _now(),
+                        'output': output,
+                        'metadata': metadata,
+                        'level': level,
+                        'statusMessage': status_message,
+                    },
+                )
             except Exception as e:
                 log.debug('Langfuse span end failed: %s', e)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Module-level helpers
-# ──────────────────────────────────────────────────────────────────────
 def flush() -> None:
-    """Flush pending events.  Call on graceful shutdown."""
     if _langfuse_client:
         try:
             _langfuse_client.flush()
@@ -407,7 +436,6 @@ def flush() -> None:
 
 
 def shutdown() -> None:
-    """Shutdown the client.  Call on process exit."""
     global _langfuse_client
     if _langfuse_client:
         try:

@@ -142,7 +142,7 @@ from open_webui.env import (
 )
 from open_webui.utils.headers import include_user_info_headers
 from open_webui.constants import TASKS
-from open_webui.utils.telemetry.langfuse_tracer import LangfuseTrace  # noqa: F401
+from open_webui.utils.telemetry.langfuse_tracer import LangfuseTrace, flush as langfuse_flush  # noqa: F401
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
@@ -3489,6 +3489,7 @@ async def non_streaming_chat_response_handler(response, ctx):
                         )
                         lf_gen.end(output=content, usage=usage)
                         lf_turn.end(output=content)
+                        langfuse_flush()
 
                     await background_tasks_handler(ctx)
                     ctx['assistant_message'] = {
@@ -4938,6 +4939,7 @@ async def streaming_chat_response_handler(response, ctx):
                 # ── Langfuse: close turn ──
                 if lf_turn and lf_turn.enabled:
                     lf_turn.end(output=serialize_output(full_output()))
+                    langfuse_flush()
                     lf_turn = None
 
                 if DETECT_CODE_INTERPRETER:
